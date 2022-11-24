@@ -1,4 +1,4 @@
-import React, {Component} from 'react';
+import React, {Component, createRef} from 'react';
 import {
   Appearance,
   Button,
@@ -10,10 +10,12 @@ import {
 } from 'react-native';
 import {Camera} from 'react-native-vision-camera';
 import {Colors, Header} from 'react-native/Libraries/NewAppScreen';
+import VideoControls from 'react-native-video-controls';
 
 export class HomeScreen extends Component<{route: any; navigation: any}> {
   public state = {videoFile: ''};
 
+  private player? = createRef<VideoControls>();
   private isDarkMode = Appearance.getColorScheme() === 'dark';
 
   private backgroundStyle = {
@@ -38,6 +40,7 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
               title="Capture Video"
             />
           </View>
+          {this.renderVideoPlayer()}
         </ScrollView>
       </SafeAreaView>
     );
@@ -67,5 +70,26 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
     this.props.navigation.navigate('Camera');
 
     this.setState({videoFile: 'TEST'});
+  }
+
+  private renderVideoPlayer(): JSX.Element {
+    if (this.props.route.params?.videoPath == undefined) return <></>;
+    return (
+      <VideoControls
+        source={{
+          uri: this.props.route.params.videoPath,
+        }}
+        ref={this.player}
+        repeat={true}
+        style={{
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          marginTop: 10,
+          marginBottom: 10,
+          width: 300,
+          height: 600,
+        }}
+      />
+    );
   }
 }

@@ -5,10 +5,15 @@ import {
   StyleSheet,
   View,
   TouchableOpacity,
-  Button,
 } from 'react-native';
-import React, {Component} from 'react';
-import {Camera, CameraDevice} from 'react-native-vision-camera';
+import React, {Component, createRef} from 'react';
+import {
+  Camera,
+  CameraDevice,
+  RecordVideoOptions,
+  VideoFile,
+} from 'react-native-vision-camera';
+import {Icon} from '@rneui/base';
 
 export class CameraScreen extends Component<{
   route: any;
@@ -22,6 +27,8 @@ export class CameraScreen extends Component<{
     cameraDevices: [],
     recording: false,
   };
+
+  private camera = createRef<Camera>();
 
   public render() {
     if (this.state.cameraDevices.length <= 0)
@@ -55,9 +62,11 @@ export class CameraScreen extends Component<{
           enableZoomGesture={true}
           video={true}
           audio={true}
+          ref={this.camera}
         />
 
         <TouchableOpacity
+          onPress={() => this.toggleRecording()}
           style={{
             marginTop: '160%',
             marginLeft: 'auto',
@@ -73,6 +82,7 @@ export class CameraScreen extends Component<{
           <Text> {this.state.recording ? 'Stop' : 'Start'} </Text>
         </TouchableOpacity>
         <TouchableOpacity
+          disabled={this.state.recording}
           onPress={() => this.setState({selectedIndex: undefined})}
           style={{
             position: 'absolute',
@@ -87,6 +97,23 @@ export class CameraScreen extends Component<{
             backgroundColor: 'grey',
           }}>
           <Text> Select </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          disabled={this.state.recording}
+          onPress={() => this.props.navigation.goBack()}
+          style={{
+            position: 'absolute',
+            top: 5,
+            left: 5,
+            width: 50,
+            height: 50,
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 2,
+            borderRadius: 100,
+            backgroundColor: 'grey',
+          }}>
+          <Icon name="close" />
         </TouchableOpacity>
       </View>
     );
@@ -126,11 +153,28 @@ export class CameraScreen extends Component<{
       'selected camera device',
       this.state.cameraDevices[index].name,
     );
-    this.state.cameraDevices[index].formats.forEach(format =>
-      console.debug(
-        format.frameRateRanges.map(f => f.maxFrameRate),
-        '\n',
-      ),
-    );
+    console.info(this.state.cameraDevices[index].formats[0]);
+    console.info(this.state.cameraDevices[index].formats[1]);
+  }
+
+  private async toggleRecording() {
+    const options: RecordVideoOptions = {
+      flash: 'off',
+      fileType: 'mp4',
+      onRecordingError: error => console.error(error),
+      onRecordingFinished: video => this.returnVideo(video),
+      videoCodec: 'hevc', // iOS only
+    };
+    if (this.state.recording) {
+      await this.camera.current?.stopRecording();
+      this.setState({recording: false});
+    } else {
+      this.camera.current?.startRecording(options);
+      this.setState({recording: true});
+    }
+  }
+
+  private returnVideo(video: VideoFile) {
+    this.props.navigation.navigate('Home', {videoPath: video.path});
   }
 }
