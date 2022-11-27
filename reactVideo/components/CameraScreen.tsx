@@ -5,6 +5,8 @@ import {
   StyleSheet,
   View,
   TouchableOpacity,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native';
 import React, {Component, createRef} from 'react';
 import {
@@ -14,6 +16,14 @@ import {
   VideoFile,
 } from 'react-native-vision-camera';
 import {Icon} from '@rneui/base';
+import {
+  copyFile,
+  DocumentDirectoryPath,
+  exists,
+  ExternalStorageDirectoryPath,
+  mkdir,
+  moveFile,
+} from 'react-native-fs';
 
 export class CameraScreen extends Component<{
   route: any;
@@ -174,7 +184,37 @@ export class CameraScreen extends Component<{
     }
   }
 
-  private returnVideo(video: VideoFile) {
+  private async returnVideo(video: VideoFile) {
+    await this.storeVideo(video);
+    console.debug('video', video);
     this.props.navigation.navigate('Home', {videoPath: video.path});
+  }
+
+  private async storeVideo(video: VideoFile) {
+    await copyFile(video.path, await this.buildVideoPath(video));
+  }
+
+  private async buildVideoPath(video: VideoFile) {
+    const targetDirectory = await new Promise<string>(async resolve => {
+      if (Platform.OS === 'android') {
+        const writeExternal = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        );
+        const readExternal = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        );
+        if (
+          writeExternal !== PermissionsAndroid.RESULTS.GRANTED ||
+          readExternal !== PermissionsAndroid.RESULTS.GRANTED
+        ) {
+          throw new Error('Permissions not granted');
+        }
+        resolve(ExternalStorageDirectoryPath + '/Documents/crossVideo');
+      }
+      resolve(DocumentDirectoryPath + '/crossVideo');
+    });
+    console.debug('targetDirectory', targetDirectory);
+    if (!(await exists(targetDirectory))) await mkdir(targetDirectory);
+    return targetDirectory + '/' + video.path.split('/').pop();
   }
 }
