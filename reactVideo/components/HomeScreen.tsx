@@ -2,6 +2,7 @@ import React, {Component, createRef} from 'react';
 import {
   Appearance,
   Button,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -39,8 +40,16 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
               onPress={async () => await this.buttonClickHandler()}
               title="Capture Video"
             />
+            <View style={{marginTop: 20}}>
+              <Text></Text>
+            </View>
+            <Button
+              onPress={async () => await this.testButtonClickHandler()}
+              title="Execute Test"
+            />
           </View>
           {this.renderVideoPlayer()}
+          {this.renderTestResult()}
         </ScrollView>
       </SafeAreaView>
     );
@@ -48,6 +57,22 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
 
   private async buttonClickHandler(): Promise<void> {
     this.setState({videoFile: 'Capturing...'});
+    if (!(await this.checkPermissions())) return;
+    this.props.navigation.navigate('Camera');
+  }
+
+  private async testButtonClickHandler(): Promise<void> {
+    this.setState({videoFile: 'Executing...'});
+    if (!(await this.checkPermissions())) return;
+    Date.now();
+
+    this.props.navigation.navigate('Camera', {
+      test: true,
+      startTime: Date.now(),
+    });
+  }
+
+  private async checkPermissions(): Promise<boolean> {
     let [cameraPermission, microphonePermission] = await Promise.all([
       Camera.getCameraPermissionStatus(),
       Camera.getMicrophonePermissionStatus(),
@@ -64,12 +89,11 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
     if (
       cameraPermission !== 'authorized' ||
       microphonePermission !== 'authorized'
-    )
-      return;
+    ) {
+      return false;
+    }
 
-    this.props.navigation.navigate('Camera');
-
-    this.setState({videoFile: 'TEST'});
+    return true;
   }
 
   private renderVideoPlayer(): JSX.Element {
@@ -90,6 +114,22 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
           height: 600,
         }}
       />
+    );
+  }
+
+  private renderTestResult(): JSX.Element {
+    if (this.props.route.params?.success !== true) return <></>;
+    const testTime =
+      this.props.route.params?.endTime - this.props.route.params?.startTime;
+    const recordingTime = this.props.route.params?.targetRecordingTime;
+    return (
+      <View style={this.backgroundStyle}>
+        <Text>
+          {`Test took ${testTime} ms\n${
+            testTime - recordingTime
+          } ms longer than the target recording time of ${recordingTime} ms`}
+        </Text>
+      </View>
     );
   }
 }

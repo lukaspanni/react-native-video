@@ -22,7 +22,6 @@ import {
   exists,
   ExternalStorageDirectoryPath,
   mkdir,
-  moveFile,
 } from 'react-native-fs';
 
 export class CameraScreen extends Component<{
@@ -39,6 +38,17 @@ export class CameraScreen extends Component<{
   };
 
   private camera = createRef<Camera>();
+
+  private resolveTestFinished?: () => void;
+  private testFinishedPromise = new Promise<void>(resolve => {
+    this.resolveTestFinished = resolve;
+  });
+  private resolveTestReady?: () => void;
+  private testReadyPromise = new Promise<void>(resolve => {
+    this.resolveTestReady = resolve;
+  });
+
+  private readonly recordingTime = 10000;
 
   public render() {
     if (this.state.cameraDevices.length <= 0)
@@ -68,6 +78,7 @@ export class CameraScreen extends Component<{
           style={StyleSheet.absoluteFill}
           device={this.state.cameraDevices[this.state.selectedIndex]}
           isActive={this.props.navigation.isFocused()}
+          onInitialized={() => this.resolveTestReady!()}
           preset="high"
           enableZoomGesture={true}
           video={true}
@@ -132,6 +143,27 @@ export class CameraScreen extends Component<{
   public async componentDidMount(): Promise<void> {
     this.setState({cameraDevices: await Camera.getAvailableCameraDevices()});
     console.debug('cameraDevices', this.state.cameraDevices);
+
+    //execute test code
+    if (this.props.route.params?.test) {
+      await Camera.getAvailableCameraDevices();
+      this.setState({selectedIndex: 0}); // use default-camera
+      await this.testReadyPromise;
+      await this.toggleRecording();
+      await new Promise(resolve =>
+        setTimeout(resolve as any, this.recordingTime),
+      );
+      await this.toggleRecording();
+      await this.testFinishedPromise;
+      console.log('Test finished');
+      this.props.navigation.navigate('Home', {
+        test: true,
+        success: true,
+        startTime: this.props.route.params.startTime,
+        endTime: Date.now(),
+        targetRecordingTime: this.recordingTime,
+      });
+    }
   }
 
   private buildCameraDeviceList() {
@@ -187,7 +219,11 @@ export class CameraScreen extends Component<{
   private async returnVideo(video: VideoFile) {
     await this.storeVideo(video);
     console.debug('video', video);
-    this.props.navigation.navigate('Home', {videoPath: video.path});
+    if (this.props.route.params?.test) {
+      this.resolveTestFinished!();
+    } else {
+      this.props.navigation.navigate('Home', {videoPath: video.path});
+    }
   }
 
   private async storeVideo(video: VideoFile) {
