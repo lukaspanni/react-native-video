@@ -14,8 +14,6 @@ import {Colors, Header} from 'react-native/Libraries/NewAppScreen';
 import VideoControls from 'react-native-video-controls';
 
 export class HomeScreen extends Component<{route: any; navigation: any}> {
-  public state = {videoFile: ''};
-
   private player? = createRef<VideoControls>();
   private isDarkMode = Appearance.getColorScheme() === 'dark';
 
@@ -30,12 +28,12 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
           barStyle={this.isDarkMode ? 'light-content' : 'dark-content'}
           backgroundColor={this.backgroundStyle.backgroundColor}
         />
+        <Text>{new Date().toISOString()}</Text>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           style={this.backgroundStyle}>
           <Header />
           <View style={this.backgroundStyle}>
-            <Text>{this.state.videoFile}</Text>
             <Button
               onPress={async () => await this.buttonClickHandler()}
               title="Capture Video"
@@ -56,13 +54,11 @@ export class HomeScreen extends Component<{route: any; navigation: any}> {
   }
 
   private async buttonClickHandler(): Promise<void> {
-    this.setState({videoFile: 'Capturing...'});
     if (!(await this.checkPermissions())) return;
     this.props.navigation.navigate('Camera');
   }
 
   private async testButtonClickHandler(): Promise<void> {
-    this.setState({videoFile: 'Executing...'});
     if (!(await this.checkPermissions())) return;
     Date.now();
 
