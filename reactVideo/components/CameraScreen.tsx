@@ -10,10 +10,15 @@ import {
 } from 'react-native';
 import React, {Component, createRef} from 'react';
 import {
+  AutoFocusSystem,
   Camera,
   CameraDevice,
+  CameraDeviceFormat,
+  ColorSpace,
+  FrameRateRange,
   RecordVideoOptions,
   VideoFile,
+  VideoStabilizationMode,
 } from 'react-native-vision-camera';
 import {Icon} from '@rneui/base';
 import {
@@ -24,6 +29,19 @@ import {
   mkdir,
 } from 'react-native-fs';
 
+type VideoFormat = {
+  videoWidth: number;
+  videoHeight: number;
+  colorSpace: ColorSpace[];
+  hdr: 'HDR' | 'SDR';
+  frameRateRanges: FrameRateRange[];
+  minISO: number;
+  maxISO: number;
+  fieldOfView: number;
+  autoFocusSystem: AutoFocusSystem;
+  videoStabilization: VideoStabilizationMode[];
+};
+
 export class CameraScreen extends Component<{
   route: any;
   navigation: any;
@@ -32,9 +50,13 @@ export class CameraScreen extends Component<{
     cameraDevices: CameraDevice[];
     selectedIndex?: number;
     recording: boolean;
+    useFormat: boolean;
+    selectedFormat?: number;
+    fps?: number;
   } = {
     cameraDevices: [],
     recording: false,
+    useFormat: false,
   };
 
   private camera = createRef<Camera>();
@@ -72,19 +94,28 @@ export class CameraScreen extends Component<{
         </View>
       );
 
+    if (this.state.useFormat && this.state.selectedFormat == undefined) {
+      return (
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginTop: 22,
+          }}>
+          <ScrollView>
+            <Text style={{fontSize: 28, color: 'white', marginBottom: 20}}>
+              Select Format
+            </Text>
+            {this.buildFormatList()}
+          </ScrollView>
+        </View>
+      );
+    }
+
     return (
       <View style={StyleSheet.absoluteFill}>
-        <Camera
-          style={StyleSheet.absoluteFill}
-          device={this.state.cameraDevices[this.state.selectedIndex]}
-          isActive={this.props.navigation.isFocused()}
-          onInitialized={() => this.resolveTestReady!()}
-          preset="high"
-          enableZoomGesture={true}
-          video={true}
-          audio={true}
-          ref={this.camera}
-        />
+        {this.buildCameraElement()}
 
         <TouchableOpacity
           onPress={() => this.toggleRecording()}
@@ -140,6 +171,42 @@ export class CameraScreen extends Component<{
     );
   }
 
+  private buildCameraElement() {
+    if (this.state.selectedIndex == undefined)
+      throw new Error('No camera selected');
+    const cameraDevice = this.state.cameraDevices[this.state.selectedIndex];
+    if (this.state.useFormat && this.state.selectedFormat !== undefined) {
+      return (
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={cameraDevice}
+          isActive={this.props.navigation.isFocused()}
+          onInitialized={() => this.resolveTestReady!()}
+          format={cameraDevice.formats[this.state.selectedFormat]}
+          fps={this.state.fps}
+          enableZoomGesture={true}
+          video={true}
+          audio={true}
+          ref={this.camera}
+        />
+      );
+    }
+
+    return (
+      <Camera
+        style={StyleSheet.absoluteFill}
+        device={cameraDevice}
+        isActive={this.props.navigation.isFocused()}
+        onInitialized={() => this.resolveTestReady!()}
+        preset="high"
+        enableZoomGesture={true}
+        video={true}
+        audio={true}
+        ref={this.camera}
+      />
+    );
+  }
+
   public async componentDidMount(): Promise<void> {
     this.setState({cameraDevices: await Camera.getAvailableCameraDevices()});
     console.debug('cameraDevices', this.state.cameraDevices);
@@ -147,7 +214,7 @@ export class CameraScreen extends Component<{
     //execute test code
     if (this.props.route.params?.test) {
       await Camera.getAvailableCameraDevices();
-      this.setState({selectedIndex: 0}); // use default-camera
+      this.setState({selectedIndex: 0, useFormat: false}); // use default-camera
       await this.testReadyPromise;
       await this.toggleRecording();
       await new Promise(resolve =>
@@ -189,14 +256,88 @@ export class CameraScreen extends Component<{
       });
   }
 
+  private buildFormatList() {
+    if (this.state.selectedIndex == undefined) return;
+    const views: JSX.Element[] = [];
+    this.reduceToUniqueVideoFormats(
+      this.state.cameraDevices[this.state.selectedIndex].formats,
+    ).forEach((format, index) => {
+      views.push(
+        <View key={index}>
+          <Text
+            style={{
+              fontSize: 18,
+              color: '#bbb',
+              marginBottom: 10,
+              textDecorationLine: 'underline',
+            }}
+            onPress={() => this.selectFormat(index)}>
+            {`${format.videoWidth}x${format.videoHeight} (${format.hdr} - ${
+              format.colorSpace
+            })\nFramerates: [${format.frameRateRanges
+              .map(v => v.minFrameRate + '-' + v.maxFrameRate + ' fps')
+              .join(', ')}]\nISO ${format.minISO} - ${format.maxISO}\nFOV: ${
+              format.fieldOfView
+            }°, AF: ${format.autoFocusSystem}\nStabilization: ${
+              format.videoStabilization
+            }`}
+          </Text>
+        </View>,
+      );
+    });
+
+    return views;
+  }
+
+  private reduceToUniqueVideoFormats(
+    formats: CameraDeviceFormat[],
+  ): Map<number, VideoFormat> {
+    const uniqueVideoFormats = new Set();
+    const reducedFormat = new Map<number, VideoFormat>();
+
+    formats
+      .map<VideoFormat>(format => ({
+        videoWidth: format.videoWidth,
+        videoHeight: format.videoHeight,
+        colorSpace: format.colorSpaces,
+        hdr: format.supportsVideoHDR ? 'HDR' : 'SDR',
+        frameRateRanges: format.frameRateRanges,
+        minISO: format.minISO,
+        maxISO: format.maxISO,
+        fieldOfView: format.fieldOfView,
+        autoFocusSystem: format.autoFocusSystem,
+        videoStabilization: format.videoStabilizationModes,
+      }))
+      .forEach((format, index) => {
+        if (!uniqueVideoFormats.has(JSON.stringify(format))) {
+          uniqueVideoFormats.add(JSON.stringify(format));
+          reducedFormat.set(index, format);
+        } else {
+          console.log('Duplicate format: ', format);
+        }
+      });
+
+    return reducedFormat;
+  }
+
   private selectCameraDevice(index: number) {
-    this.setState({selectedIndex: index});
+    this.setState({selectedIndex: index, useFormat: true});
     console.debug(
       'selected camera device',
       this.state.cameraDevices[index].name,
     );
     console.info(this.state.cameraDevices[index].formats[0]);
     console.info(this.state.cameraDevices[index].formats[1]);
+  }
+
+  private selectFormat(index: number) {
+    if (this.state.selectedIndex == undefined) return;
+    const format =
+      this.state.cameraDevices[this.state.selectedIndex].formats[index];
+    const fps =
+      format.frameRateRanges[format.frameRateRanges.length - 1].maxFrameRate;
+    this.setState({selectedFormat: index, fps: fps});
+    console.debug('Selected Format: ', format, 'fps: ', fps);
   }
 
   private async toggleRecording() {
