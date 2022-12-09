@@ -14,6 +14,7 @@ import {
   Camera,
   CameraDevice,
   CameraDeviceFormat,
+  CameraVideoCodec,
   ColorSpace,
   FrameRateRange,
   RecordVideoOptions,
@@ -53,10 +54,16 @@ export class CameraScreen extends Component<{
     useFormat: boolean;
     selectedFormat?: number;
     fps?: number;
+    codecs: string[];
+    selectedCodec: CameraVideoCodec;
+    showCodecSelect: boolean;
   } = {
     cameraDevices: [],
     recording: false,
     useFormat: false,
+    codecs: [],
+    selectedCodec: 'hevc',
+    showCodecSelect: false,
   };
 
   private camera = createRef<Camera>();
@@ -65,9 +72,9 @@ export class CameraScreen extends Component<{
   private testFinishedPromise = new Promise<void>(resolve => {
     this.resolveTestFinished = resolve;
   });
-  private resolveTestReady?: () => void;
-  private testReadyPromise = new Promise<void>(resolve => {
-    this.resolveTestReady = resolve;
+  private resolveCameraReady?: () => void;
+  private cameraReadyPromise = new Promise<void>(resolve => {
+    this.resolveCameraReady = resolve;
   });
 
   private readonly recordingTime = 10000;
@@ -116,7 +123,6 @@ export class CameraScreen extends Component<{
     return (
       <View style={StyleSheet.absoluteFill}>
         {this.buildCameraElement()}
-
         <TouchableOpacity
           onPress={() => this.toggleRecording()}
           style={{
@@ -167,6 +173,7 @@ export class CameraScreen extends Component<{
           }}>
           <Icon name="close" />
         </TouchableOpacity>
+        {this.buildCodecSelect()}
       </View>
     );
   }
@@ -181,7 +188,7 @@ export class CameraScreen extends Component<{
           style={StyleSheet.absoluteFill}
           device={cameraDevice}
           isActive={this.props.navigation.isFocused()}
-          onInitialized={() => this.resolveTestReady!()}
+          onInitialized={() => this.resolveCameraReady!()}
           format={cameraDevice.formats[this.state.selectedFormat]}
           fps={this.state.fps}
           enableZoomGesture={true}
@@ -197,7 +204,7 @@ export class CameraScreen extends Component<{
         style={StyleSheet.absoluteFill}
         device={cameraDevice}
         isActive={this.props.navigation.isFocused()}
-        onInitialized={() => this.resolveTestReady!()}
+        onInitialized={() => this.resolveCameraReady!()}
         preset="high"
         enableZoomGesture={true}
         video={true}
@@ -210,12 +217,17 @@ export class CameraScreen extends Component<{
   public async componentDidMount(): Promise<void> {
     this.setState({cameraDevices: await Camera.getAvailableCameraDevices()});
     console.debug('cameraDevices', this.state.cameraDevices);
+    this.cameraReadyPromise.then(async () => {
+      const codecs = await this.camera.current!.getAvailableVideoCodecs();
+      this.setState({codecs});
+      console.debug('codecs', codecs);
+    });
 
     //execute test code
     if (this.props.route.params?.test) {
       await Camera.getAvailableCameraDevices();
       this.setState({selectedIndex: 0, useFormat: false}); // use default-camera
-      await this.testReadyPromise;
+      await this.cameraReadyPromise;
       await this.toggleRecording();
       await new Promise(resolve =>
         setTimeout(resolve as any, this.recordingTime),
@@ -261,59 +273,131 @@ export class CameraScreen extends Component<{
     const views: JSX.Element[] = [];
     this.reduceToUniqueVideoFormats(
       this.state.cameraDevices[this.state.selectedIndex].formats,
-    ).forEach((format, index) => {
-      views.push(
-        <View key={index}>
-          <Text
-            style={{
-              fontSize: 18,
-              color: '#bbb',
-              marginBottom: 10,
-              textDecorationLine: 'underline',
-            }}
-            onPress={() => this.selectFormat(index)}>
-            {`${format.videoWidth}x${format.videoHeight} (${format.hdr} - ${
-              format.colorSpace
-            })\nFramerates: [${format.frameRateRanges
-              .map(v => v.minFrameRate + '-' + v.maxFrameRate + ' fps')
-              .join(', ')}]\nISO ${format.minISO} - ${format.maxISO}\nFOV: ${
-              format.fieldOfView
-            }°, AF: ${format.autoFocusSystem}\nStabilization: ${
-              format.videoStabilization
-            }`}
-          </Text>
-        </View>,
-      );
-    });
+    )
+      .sort(
+        (a, b) =>
+          b.format.videoWidth * b.format.videoHeight -
+          a.format.videoWidth * a.format.videoHeight,
+      )
+      .forEach(element => {
+        views.push(
+          <View key={element.index}>
+            <Text
+              style={{
+                fontSize: 18,
+                color: '#bbb',
+                marginBottom: 10,
+                textDecorationLine: 'underline',
+              }}
+              onPress={() => this.selectFormat(element.index)}>
+              {`${element.format.videoWidth}x${element.format.videoHeight} (${
+                element.format.hdr
+              } - ${
+                element.format.colorSpace
+              })\nFramerates: [${element.format.frameRateRanges
+                .map(v => v.minFrameRate + '-' + v.maxFrameRate + ' fps')
+                .join(', ')}]\nISO ${element.format.minISO} - ${
+                element.format.maxISO
+              }\nFOV: ${element.format.fieldOfView}°, AF: ${
+                element.format.autoFocusSystem
+              }\nStabilization: ${element.format.videoStabilization}`}
+            </Text>
+          </View>,
+        );
+      });
 
     return views;
   }
 
+  private buildCodecSelect() {
+    const selectButton = (
+      <TouchableOpacity
+        disabled={this.state.recording}
+        onPress={() => this.setState({showCodecSelect: true})}
+        style={{
+          position: 'absolute',
+          top: 5,
+          left: 60,
+          width: 100,
+          height: 50,
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 2,
+          borderRadius: 20,
+          backgroundColor: 'grey',
+        }}>
+        <Text>Codec: {this.state.selectedCodec}</Text>
+      </TouchableOpacity>
+    );
+    const elements = this.state.codecs.map((codec, index) => {
+      return (
+        <View key={index}>
+          <Text
+            style={{
+              fontSize: 20,
+              margin: '2%',
+              textDecorationLine: 'underline',
+            }}
+            onPress={() =>
+              this.setState({selectedCodec: codec, showCodecSelect: false})
+            }>
+            {codec}
+          </Text>
+        </View>
+      );
+    });
+
+    if (!this.state.showCodecSelect) return selectButton;
+    if (this.state.codecs.length <= 1) {
+      this.setState({showCodecSelect: false});
+      return <></>;
+    }
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          marginTop: '15%',
+          marginLeft: '2%',
+          width: 150,
+          height: 200,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: 'grey',
+        }}>
+        <Text style={{fontSize: 30, margin: '2%'}}>Select Codec</Text>
+        {elements}
+      </View>
+    );
+  }
+
   private reduceToUniqueVideoFormats(
     formats: CameraDeviceFormat[],
-  ): Map<number, VideoFormat> {
+  ): {index: number; format: VideoFormat}[] {
     const uniqueVideoFormats = new Set();
-    const reducedFormat = new Map<number, VideoFormat>();
+    const reducedFormat: {index: number; format: VideoFormat}[] = [];
 
     formats
-      .map<VideoFormat>(format => ({
-        videoWidth: format.videoWidth,
-        videoHeight: format.videoHeight,
-        colorSpace: format.colorSpaces,
-        hdr: format.supportsVideoHDR ? 'HDR' : 'SDR',
-        frameRateRanges: format.frameRateRanges,
-        minISO: format.minISO,
-        maxISO: format.maxISO,
-        fieldOfView: format.fieldOfView,
-        autoFocusSystem: format.autoFocusSystem,
-        videoStabilization: format.videoStabilizationModes,
+      .map<{index: number; format: VideoFormat}>((format, index) => ({
+        index: index,
+        format: {
+          videoWidth: format.videoWidth,
+          videoHeight: format.videoHeight,
+          colorSpace: format.colorSpaces,
+          hdr: format.supportsVideoHDR ? 'HDR' : 'SDR',
+          frameRateRanges: format.frameRateRanges,
+          minISO: format.minISO,
+          maxISO: format.maxISO,
+          fieldOfView: format.fieldOfView,
+          autoFocusSystem: format.autoFocusSystem,
+          videoStabilization: format.videoStabilizationModes,
+        },
       }))
-      .forEach((format, index) => {
-        if (!uniqueVideoFormats.has(JSON.stringify(format))) {
-          uniqueVideoFormats.add(JSON.stringify(format));
-          reducedFormat.set(index, format);
+      .forEach(format => {
+        if (!uniqueVideoFormats.has(JSON.stringify(format.format))) {
+          uniqueVideoFormats.add(JSON.stringify(format.format));
+          reducedFormat.push(format);
         } else {
-          console.log('Duplicate format: ', format);
+          console.log('Duplicate format: ', format.format);
         }
       });
 
@@ -346,7 +430,7 @@ export class CameraScreen extends Component<{
       fileType: 'mp4',
       onRecordingError: error => console.error(error),
       onRecordingFinished: video => this.returnVideo(video),
-      videoCodec: 'hevc', // iOS only
+      videoCodec: this.state.selectedCodec, // iOS only
     };
     if (this.state.recording) {
       await this.camera.current?.stopRecording();
